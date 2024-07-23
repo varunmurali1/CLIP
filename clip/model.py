@@ -294,6 +294,9 @@ class CLIP(nn.Module):
         self.text_projection = nn.Parameter(torch.empty(transformer_width, embed_dim))
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
 
+        self.fc1 = nn.Linear(90, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, embed_dim)
         self.initialize_parameters()
 
     def initialize_parameters(self):
@@ -355,21 +358,38 @@ class CLIP(nn.Module):
 
         return x
 
-    def forward(self, image, text):
+    def encode_acts(self, acts):
+        x = self.fc1(acts)
+        x = F.relu(x)
+
+        x = self.fc2(x)
+        x = F.relu(x)
+        
+        x = self.fc3(x)
+        x = F.relu(x)
+
+        return x
+        
+
+    def forward(self, image, text, acts):
         image_features = self.encode_image(image)
         text_features = self.encode_text(text)
+        acts_features = self.encode_acts(acts)
 
         # normalized features
         image_features = image_features / image_features.norm(dim=1, keepdim=True)
         text_features = text_features / text_features.norm(dim=1, keepdim=True)
+        acts_features = acts_features / acts_features.norm(dim=1, keepdim=True)
 
         # cosine similarity as logits
         logit_scale = self.logit_scale.exp()
         logits_per_image = logit_scale * image_features @ text_features.t()
         logits_per_text = logits_per_image.t()
 
+        logits_per_acts = logit_scale * acts_features @ text_features.t()
+
         # shape = [global_batch_size, global_batch_size]
-        return logits_per_image, logits_per_text
+        return logits_per_image, logits_per_text, logits_per_acts
 
 
 def convert_weights(model: nn.Module):
@@ -415,7 +435,7 @@ def build_model(state_dict: dict):
         image_resolution = output_width * 32
 
     embed_dim = state_dict["text_projection"].shape[1]
-    context_length = state_dict["positional_embedding"].shape[0]
+    context_length = 500 #state_dict["positional_embedding"].shape[0]
     vocab_size = state_dict["token_embedding.weight"].shape[0]
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
@@ -432,5 +452,5 @@ def build_model(state_dict: dict):
             del state_dict[key]
 
     convert_weights(model)
-    model.load_state_dict(state_dict)
+    #model.load_state_dict(state_dict, strict=False)
     return model.eval()
