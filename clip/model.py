@@ -149,9 +149,9 @@ class ModifiedResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        x = self.attnpool(x)
+        g = self.attnpool(x)
 
-        return x
+        return x,g
 
 
 class LayerNorm(nn.LayerNorm):
@@ -232,12 +232,12 @@ class VisionTransformer(nn.Module):
         x = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
-        x = self.ln_post(x[:, 0, :])
+        g = self.ln_post(x[:, 0, :])
 
         if self.proj is not None:
-            x = x @ self.proj
+            g = g @ self.proj
 
-        return x
+        return x[:, 1:, :], g
 
 
 class CLIP(nn.Module):
@@ -372,7 +372,7 @@ class CLIP(nn.Module):
         
 
     def forward(self, image, text, acts):
-        image_features = self.encode_image(image)
+        _, image_features = self.encode_image(image)
         text_features = self.encode_text(text)
         acts_features = self.encode_acts(acts)
 
@@ -435,7 +435,7 @@ def build_model(state_dict: dict):
         image_resolution = output_width * 32
 
     embed_dim = state_dict["text_projection"].shape[1]
-    context_length = 500 #state_dict["positional_embedding"].shape[0]
+    context_length = state_dict["positional_embedding"].shape[0]
     vocab_size = state_dict["token_embedding.weight"].shape[0]
     transformer_width = state_dict["ln_final.weight"].shape[0]
     transformer_heads = transformer_width // 64
@@ -452,5 +452,5 @@ def build_model(state_dict: dict):
             del state_dict[key]
 
     convert_weights(model)
-    #model.load_state_dict(state_dict, strict=False)
+    model.load_state_dict(state_dict, strict=False)
     return model.eval()
