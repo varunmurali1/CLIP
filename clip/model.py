@@ -200,7 +200,14 @@ class Transformer(nn.Module):
         self.resblocks = nn.Sequential(*[ResidualAttentionBlock(width, heads, attn_mask) for _ in range(layers)])
 
     def forward(self, x: torch.Tensor):
-        return self.resblocks(x)
+        blocks_out = []
+        for resblock in self.resblocks:
+            x = resblock(x)
+            blocks_out.append(x)
+        blocks_out = torch.stack(blocks_out, dim=1)
+        blocks_out = blocks_out.permute(2, 1, 0, 3)
+        return x, blocks_out
+        # return self.resblocks(x)
 
 
 class VisionTransformer(nn.Module):
@@ -229,7 +236,7 @@ class VisionTransformer(nn.Module):
         x = self.ln_pre(x)
 
         x = x.permute(1, 0, 2)  # NLD -> LND
-        x = self.transformer(x)
+        x, blocks = self.transformer(x)
         x = x.permute(1, 0, 2)  # LND -> NLD
 
         g = self.ln_post(x[:, 0, :])
@@ -237,7 +244,7 @@ class VisionTransformer(nn.Module):
         if self.proj is not None:
             g = g @ self.proj
 
-        return x[:, 1:, :], g
+        return x[:, 1:, :], g, blocks
 
 
 class CLIP(nn.Module):
@@ -372,7 +379,7 @@ class CLIP(nn.Module):
         
 
     def forward(self, image, text, acts):
-        _, image_features = self.encode_image(image)
+        _, image_features, image_intermediate_features = self.encode_image(image)
         text_features = self.encode_text(text)
         acts_features = self.encode_acts(acts)
 
